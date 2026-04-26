@@ -8,37 +8,50 @@ async function req(path, { method = "GET", body } = {}) {
   });
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
-  if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+  if (!res.ok) throw new Error(data?.error || data?.message || `HTTP ${res.status}`);
   return data;
 }
 
 export const api = {
+  // auth
   register: (body) => req("/auth/register", { method: "POST", body }),
-  login: (body) => req("/auth/login", { method: "POST", body }),
+  login:    (body) => req("/auth/login",    { method: "POST", body }),
 
-  slots: (location) =>
-    req(`/slots${location ? `?location=${encodeURIComponent(location)}` : ""}`),
-  locations: () => req("/slots/locations"),
-  pricing: () => req("/slots/pricing"),
+  // slots / pricing
+  slots:     (location) => req(`/slots${location ? `?location=${encodeURIComponent(location)}` : ""}`),
+  locations: ()         => req("/slots/locations"),
+  pricing:   ()         => req("/slots/pricing"),
 
-  myVehicles: (userId) => req(`/vehicles/mine?userId=${userId}`),
-  addVehicle: (body) => req("/vehicles", { method: "POST", body }),
+  // vehicles
+  myVehicles:    (userId)     => req(`/vehicles/mine?userId=${userId}`),
+  addVehicle:    (body)       => req("/vehicles", { method: "POST", body }),
+  deleteVehicle: (id, userId) => req(`/vehicles/${id}?userId=${userId}`, { method: "DELETE" }),
 
-  createReservation: (body) => req("/reservations", { method: "POST", body }),
-  myReservations: (userId) => req(`/reservations/mine?userId=${userId}`),
-  cancelReservation: (id, userId) =>
-    req(`/reservations/${id}/cancel?userId=${userId}`, { method: "PATCH" }),
+  // reservations
+  createReservation: (body)       => req("/reservations", { method: "POST", body }),
+  myReservations:    (userId)     => req(`/reservations/mine?userId=${userId}`),
+  cancelReservation: (id, userId) => req(`/reservations/${id}/cancel?userId=${userId}`, { method: "PATCH" }),
 
-  pay: (body) => req("/payments", { method: "POST", body }),
+  // payments
+  pay:        (body)   => req("/payments", { method: "POST", body }),
   myPayments: (userId) => req(`/payments/mine?userId=${userId}`),
+
+  // admin
+  adminStats:         (uid)        => req(`/admin/stats?userId=${uid}`),
+  adminUsers:         (uid)        => req(`/admin/users?userId=${uid}`),
+  adminReservations:  (uid)        => req(`/admin/reservations?userId=${uid}`),
+  adminPayments:      (uid)        => req(`/admin/payments?userId=${uid}`),
+  adminPricing:       (uid)        => req(`/admin/pricing?userId=${uid}`),
+  adminCreateSlot:    (uid, body)  => req(`/admin/slots?userId=${uid}`, { method: "POST", body }),
+  adminUpdateSlot:    (uid, id, b) => req(`/admin/slots/${id}?userId=${uid}`, { method: "PATCH", body: b }),
+  adminDeleteSlot:    (uid, id)    => req(`/admin/slots/${id}?userId=${uid}`, { method: "DELETE" }),
+  adminCreatePricing: (uid, body)  => req(`/admin/pricing?userId=${uid}`, { method: "POST", body }),
+  adminDeletePricing: (uid, id)    => req(`/admin/pricing/${id}?userId=${uid}`, { method: "DELETE" }),
 };
 
 export function getSession() {
-  try {
-    return JSON.parse(localStorage.getItem("sp_user") || "null");
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(localStorage.getItem("sp_user") || "null"); }
+  catch { return null; }
 }
 export function setSession(u) {
   if (u) localStorage.setItem("sp_user", JSON.stringify(u));
