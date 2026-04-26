@@ -64,6 +64,43 @@ public class ReservationsController {
             throw new ApiException(HttpStatus.CONFLICT, "Slot not available (status: " + status + ")");
         }
 
+        // Rule: vehicle must exist, belong to the user, and match the slot type.
+        Map<String, Object> vehicle;
+        try {
+            vehicle = jdbc.queryForMap(
+                "SELECT UserID, VehicleType FROM Vehicles WHERE VehicleID = ?",
+                req.vehicleId
+            );
+        } catch (Exception ex) {
+            throw new ApiException(HttpStatus.NOT_FOUND,
+                "Vehicle not found. Register a vehicle before booking.");
+        }
+        Integer ownerId = (Integer) vehicle.get("UserID");
+        String vehicleType = (String) vehicle.get("VehicleType");
+        if (ownerId == null || !ownerId.equals(req.userId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN,
+                "This vehicle does not belong to you.");
+        }
+        if (!vehicleType.equals(slotType)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                "Vehicle type (" + vehicleType + ") does not match slot type (" + slotType + ").");
+        }
+
+        // Rule: one active reservation per vehicle at a time.
+        // Block any new booking while the vehicle still has a Booked reservation
+        // whose end time is in the future.
+        Integer activeForVehicle = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM Reservations " +
+            "WHERE VehicleID = ? AND ReservationStatus = 'Booked' " +
+            "AND EndTime > ?",
+            Integer.class, req.vehicleId, Timestamp.valueOf(LocalDateTime.now())
+        );
+        if (activeForVehicle != null && activeForVehicle > 0) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                "This vehicle already has an active reservation. " +
+                "Wait until it ends or cancel it before booking another slot.");
+        }
+
         String vCode = code();
 
         Map<String, Object> values = new HashMap<>();
@@ -140,14 +177,27 @@ public class ReservationsController {
     @PatchMapping("/{id}/cancel")
     @Transactional
     public Map<String, Object> cancel(@PathVariable int id, @RequestParam int userId) {
-        Integer slotId;
+        Map<String, Object> row;
         try {
-            slotId = jdbc.queryForObject(
-                "SELECT SlotID FROM Reservations WHERE ReservationID = ? AND UserID = ? AND ReservationStatus = 'Booked'",
-                Integer.class, id, userId
+            row = jdbc.queryForMap(
+                "SELECT SlotID, StartTime FROM Reservations " +
+                "WHERE ReservationID = ? AND UserID = ? AND ReservationStatus = 'Booked'",
+                id, userId
             );
         } catch (Exception ex) {
             throw new ApiException(HttpStatus.NOT_FOUND, "Reservation not found or not cancellable");
+        }
+
+        Integer slotId = (Integer) row.get("SlotID");
+        Timestamp startTs = (Timestamp) row.get("StartTime");
+
+        // Rule: cancellation must be at least 1 hour before the start time.
+        long minutesUntilStart =
+            java.time.Duration.between(LocalDateTime.now(), startTs.toLocalDateTime()).toMinutes();
+        if (minutesUntilStart < 60) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                "Cancellation closed: must cancel at least 1 hour before start time " +
+                "(only " + Math.max(minutesUntilStart, 0) + " minutes left).");
         }
 
         jdbc.update("UPDATE Reservations SET ReservationStatus = 'Cancelled' WHERE ReservationID = ?", id);
