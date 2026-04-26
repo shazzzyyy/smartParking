@@ -44,6 +44,16 @@ public class VehiclesController {
         if (req.userId == null || req.licensePlate == null || req.vehicleType == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "userId, licensePlate, vehicleType required");
         }
+        if (!List.of("Car", "Bike", "EV").contains(req.vehicleType)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "vehicleType must be Car, Bike or EV");
+        }
+        Integer dup = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM Vehicles WHERE LicensePlate = ?", Integer.class, req.licensePlate
+        );
+        if (dup != null && dup > 0) {
+            throw new ApiException(HttpStatus.CONFLICT, "License plate already registered");
+        }
+
         Map<String, Object> values = new HashMap<>();
         values.put("UserID", req.userId);
         values.put("LicensePlate", req.licensePlate);
@@ -62,5 +72,25 @@ public class VehiclesController {
             "licensePlate", req.licensePlate,
             "type", req.vehicleType
         );
+    }
+
+    @DeleteMapping("/{id}")
+    public Map<String, Object> delete(@PathVariable int id, @RequestParam int userId) {
+        Integer owned = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM Vehicles WHERE VehicleID = ? AND UserID = ?",
+            Integer.class, id, userId
+        );
+        if (owned == null || owned == 0) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Vehicle not found");
+        }
+        Integer used = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM Reservations WHERE VehicleID = ? AND ReservationStatus = 'Booked'",
+            Integer.class, id
+        );
+        if (used != null && used > 0) {
+            throw new ApiException(HttpStatus.CONFLICT, "Vehicle has active reservations");
+        }
+        jdbc.update("DELETE FROM Vehicles WHERE VehicleID = ?", id);
+        return Map.of("vehicleId", id, "deleted", true);
     }
 }
