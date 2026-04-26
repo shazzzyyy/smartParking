@@ -2,7 +2,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { getSession, setSession } from "../api";
 
 const USER_LINKS = [
-  { to: "/dashboard",    label: "Slots" },
+  { to: "/dashboard",    label: "Dashboard" },
   { to: "/reservations", label: "Reservations" },
   { to: "/vehicles",     label: "Vehicles" },
 ];
@@ -17,25 +17,26 @@ export default function Shell({ children }) {
 
   const links = user?.role === "Admin" ? ADMIN_LINKS : USER_LINKS;
   const logout = () => { setSession(null); navigate("/login"); };
+  const home = user?.role === "Admin" ? "/admin" : "/dashboard";
 
   return (
-    <div className="min-h-screen bg-[var(--bg)] text-slate-100 flex flex-col">
-      <header className="border-b border-white/5 bg-[var(--surface)]/60 backdrop-blur sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-8">
-            <Link to={user?.role === "Admin" ? "/admin" : "/dashboard"} className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400" />
-              <span className="font-bold tracking-tight">Smart Parking</span>
+    <div className="min-h-screen bg-[#1f2d44] text-white flex flex-col">
+      <header className="border-b border-white/10 bg-[#1f2d44]">
+        <div className="px-8 lg:px-14 py-5 flex items-center justify-between anim-slide-down">
+          <div className="flex items-center gap-10">
+            <Link to={home} className="leading-[1.1]">
+              <div className="text-[13px] font-black tracking-[0.15em] text-white">SMART</div>
+              <div className="text-[13px] font-black tracking-[0.15em] text-white">PARKING</div>
             </Link>
-            <nav className="hidden md:flex items-center gap-1">
+            <nav className="hidden md:flex items-center gap-7 text-sm">
               {links.map((l) => (
                 <Link
                   key={l.to}
                   to={l.to}
-                  className={`px-3 py-1.5 text-sm rounded-md transition ${
+                  className={`transition pb-1 ${
                     pathname === l.to
-                      ? "bg-white/10 text-white font-semibold"
-                      : "text-slate-400 hover:text-white hover:bg-white/5"
+                      ? "text-white font-bold border-b-2 border-white"
+                      : "text-slate-400 hover:text-slate-200"
                   }`}
                 >
                   {l.label}
@@ -44,69 +45,132 @@ export default function Shell({ children }) {
             </nav>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-5 text-sm">
             {user && (
-              <div className="hidden sm:flex flex-col items-end leading-tight">
-                <span className="text-sm font-medium">{user.fullName}</span>
-                <span className="text-[11px] text-slate-500">
-                  {user.role === "Admin" ? "Administrator" : user.email}
-                </span>
-              </div>
+              <>
+                <div className="hidden md:block text-right leading-tight">
+                  <div className="text-white font-semibold">{user.fullName}</div>
+                  <div className="text-slate-400 text-xs tracking-wider">
+                    {user.role === "Admin" ? "ADMINISTRATOR" : user.email}
+                  </div>
+                </div>
+                <div className="w-9 h-9 rounded-full bg-[#cabf9e] text-[#1e2d44] flex items-center justify-center font-black">
+                  {user.fullName.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase()}
+                </div>
+              </>
             )}
-            <button onClick={logout} className="btn btn-secondary text-xs px-3 py-1.5">
-              Sign out
+            <button
+              onClick={logout}
+              className="text-xs text-slate-400 hover:text-white tracking-[0.25em]"
+            >
+              LOGOUT
             </button>
           </div>
         </div>
       </header>
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8 fade-in">{children}</main>
+      {children}
 
-      <footer className="border-t border-white/5 text-[11px] text-slate-500">
-        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
-          <span>Smart Parking · Group 8 · DB Lab</span>
-          <span>MS SQL Server · Spring Boot · React</span>
+      <footer className="bg-[#16202f] border-t border-white/5 anim-fade-up delay-700">
+        <div className="px-8 lg:px-14 py-5 flex items-center justify-between flex-wrap gap-4">
+          <div className="flex items-center gap-10 lg:gap-14 flex-wrap">
+            <FootStat label="ENGINE" value="MSSQL 2022" />
+            <FootStat label="STACK"  value="SPRING · REACT" />
+            <FootStat label="GROUP"  value="08" />
+            <FootStat label="OPEN"   value="08:00 – 20:00" />
+          </div>
+          <div className="text-[10px] tracking-[0.4em] text-slate-500">
+            SMART PARKING SYSTEM
+          </div>
         </div>
       </footer>
     </div>
   );
 }
 
-export function PageHeader({ title, subtitle, action }) {
+function FootStat({ label, value }) {
   return (
-    <div className="flex items-end justify-between mb-6 flex-wrap gap-4">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-        {subtitle && <p className="text-sm text-slate-400 mt-1">{subtitle}</p>}
-      </div>
-      {action}
+    <div>
+      <div className="text-[9px] tracking-[0.3em] text-slate-500 mb-0.5 font-bold">{label}</div>
+      <div className="text-sm font-black text-white tracking-wide">{value}</div>
     </div>
   );
 }
 
-export function Empty({ title, body, action }) {
+export function Hero({ kicker, title, subtitle, children }) {
   return (
-    <div className="card p-12 text-center">
-      <h3 className="text-lg font-semibold">{title}</h3>
-      {body && <p className="text-sm text-slate-400 mt-1">{body}</p>}
-      {action && <div className="mt-4">{action}</div>}
+    <section className="bg-[#1f2d44] px-8 lg:px-14 pt-10 pb-14 anim-fade-up">
+      {kicker && (
+        <div className="text-xs tracking-[0.4em] text-slate-400 mb-3">{kicker}</div>
+      )}
+      <div className="flex items-end justify-between flex-wrap gap-6">
+        <div>
+          <h1 className="text-6xl lg:text-8xl font-black leading-[0.9] tracking-tight">{title}</h1>
+          {subtitle && (
+            <p className="mt-4 text-sm text-slate-300 max-w-md leading-relaxed">{subtitle}</p>
+          )}
+        </div>
+        {children && <div className="flex items-end gap-10 text-sm">{children}</div>}
+      </div>
+    </section>
+  );
+}
+
+export function HeroStat({ label, value }) {
+  return (
+    <div>
+      <div className="text-[10px] tracking-[0.3em] text-slate-400 mb-1 font-bold">{label}</div>
+      <div className="text-2xl font-black text-white tracking-tight">{value}</div>
     </div>
+  );
+}
+
+export function Cream({ children, className = "" }) {
+  return (
+    <main className={`flex-1 bg-gradient-to-b from-[#cabf9e] to-[#b6a880] text-[#1e2d44] px-8 lg:px-14 py-12 ${className}`}>
+      {children}
+    </main>
   );
 }
 
 export function Badge({ status }) {
   const map = {
-    Available: "bg-emerald-500/15 text-emerald-300",
-    Occupied:  "bg-slate-500/20 text-slate-300",
-    Reserved:  "bg-amber-500/15 text-amber-300",
-    Maintenance: "bg-red-500/15 text-red-300",
-    Booked:    "bg-emerald-500/15 text-emerald-300",
-    Completed: "bg-slate-500/20 text-slate-300",
-    Cancelled: "bg-red-500/15 text-red-300",
-    Paid:      "bg-emerald-500/15 text-emerald-300",
-    Unpaid:    "bg-amber-500/15 text-amber-300",
-    Pending:   "bg-amber-500/15 text-amber-300",
-    Failed:    "bg-red-500/15 text-red-300",
+    Available:   "bg-emerald-500/20 text-emerald-900 border-emerald-900/30",
+    Occupied:    "bg-[#1e2d44]/15 text-[#1e2d44] border-[#1e2d44]/20",
+    Reserved:    "bg-amber-500/20 text-amber-900 border-amber-900/40",
+    Maintenance: "bg-red-500/20 text-red-900 border-red-900/30",
+    Booked:      "bg-emerald-500/20 text-emerald-900 border-emerald-900/30",
+    Completed:   "bg-[#1e2d44]/15 text-[#1e2d44] border-[#1e2d44]/20",
+    Cancelled:   "bg-red-500/20 text-red-900 border-red-900/30",
+    Paid:        "bg-emerald-500/20 text-emerald-900 border-emerald-900/30",
+    Unpaid:      "bg-amber-500/20 text-amber-900 border-amber-900/40",
+    Pending:     "bg-amber-500/20 text-amber-900 border-amber-900/40",
+    Failed:      "bg-red-500/20 text-red-900 border-red-900/30",
   };
-  return <span className={`badge ${map[status] || "bg-white/10 text-slate-300"}`}>{status}</span>;
+  const cls = map[status] || "bg-white/40 text-[#1e2d44] border-[#1e2d44]/20";
+  return (
+    <span className={`text-[10px] tracking-widest font-bold px-2 py-1 border ${cls}`}>
+      {(status || "—").toUpperCase()}
+    </span>
+  );
+}
+
+export function Empty({ kicker = "EMPTY", title, body, action }) {
+  return (
+    <div className="text-center py-20">
+      <div className="text-[10px] tracking-[0.4em] text-[#1e2d44]/60 mb-2 font-bold">{kicker}</div>
+      <h2 className="text-3xl font-black mb-3">{title}</h2>
+      {body && <p className="text-sm text-[#1e2d44]/70 max-w-sm mx-auto">{body}</p>}
+      {action && <div className="mt-6">{action}</div>}
+    </div>
+  );
+}
+
+export function ErrorBox({ msg, onLight }) {
+  if (!msg) return null;
+  return onLight ? (
+    <div className="mb-6 text-xs text-red-900 bg-red-200/60 border border-red-900/30 rounded-lg px-3 py-2">{msg}</div>
+  ) : (
+    <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">{msg}</div>
+  );
 }
