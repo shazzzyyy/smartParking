@@ -1,0 +1,34 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.project
+.classpath
+.settings/
+
+# Node
+node_modules/
+dist/
+.vite/
+*.log
+npm-debug.log*
+
+# Java / Maven
+target/
+*.class
+*.jar
+!**/.mvn/wrapper/maven-wrapper.jar
+build/
+.gradle/
+
+# Spring
+HELP.md
+
+# Env
+.env
+.env.local
+*.local
