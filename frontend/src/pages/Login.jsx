@@ -94,18 +94,18 @@ export default function Login() {
 
 export function EyeIcon({ open }) {
   return open ? (
-    // eye-slash (closed): outline eye with diagonal slash
+    // password visible → open eye
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  ) : (
+    // password hidden → slashed eye
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 3l18 18" />
       <path d="M10.6 6.1A10.5 10.5 0 0 1 12 6c5 0 9 4 10 6-.5 1.1-1.4 2.4-2.7 3.5" />
       <path d="M6.5 6.5C4.4 7.9 2.7 9.9 2 12c1 2 5 6 10 6 1.4 0 2.8-.3 4-.9" />
       <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
-    </svg>
-  ) : (
-    // eye (open): outline eye with pupil
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" />
-      <circle cx="12" cy="12" r="3" />
     </svg>
   );
 }
