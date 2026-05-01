@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 
 function nextHour(d = new Date()) {
@@ -27,7 +27,26 @@ export default function BookingModal({ slot, vehicles, rate, userId, onClose, on
     const s = new Date(start), e = new Date(end);
     return Math.max(0, (e - s) / 3600000);
   }, [start, end]);
-  const total = useMemo(() => Math.round(hours * rate * 100) / 100, [hours, rate]);
+  const flatTotal = useMemo(() => Math.round(hours * rate * 100) / 100, [hours, rate]);
+
+  // Dynamic price quote (debounced)
+  const [quote, setQuote] = useState(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  useEffect(() => {
+    if (!(new Date(end) > new Date(start))) { setQuote(null); return; }
+    setQuoteLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const q = await api.quote({ slotType: slot.type, start: start + ":00", end: end + ":00" });
+        setQuote(q);
+      } catch { setQuote(null); }
+      finally { setQuoteLoading(false); }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [start, end, slot.type]);
+
+  const total = quote ? Number(quote.dynamicTotal) : flatTotal;
+  const multiplier = quote ? Number(quote.multiplierApplied) : 1;
 
   const submit = async (e) => {
     e.preventDefault();
@@ -118,11 +137,24 @@ export default function BookingModal({ slot, vehicles, rate, userId, onClose, on
 
             <div className="bg-[#16202f] border border-white/10 rounded-lg p-4 space-y-2 text-sm">
               <Row k="DURATION" v={`${hours.toFixed(1)} hrs`} />
-              <Row k="RATE" v={`Rs ${rate}/h`} />
+              <Row k="BASE RATE" v={`Rs ${rate}/h`} />
+              {quote && multiplier !== 1 && (
+                <Row
+                  k={multiplier > 1 ? "PEAK SURCHARGE" : "OFF-PEAK DISCOUNT"}
+                  v={`×${multiplier.toFixed(2)}`}
+                />
+              )}
               <div className="flex justify-between border-t border-white/10 pt-2 mt-1">
-                <span className="text-slate-400 text-xs tracking-wider">TOTAL</span>
+                <span className="text-slate-400 text-xs tracking-wider">
+                  TOTAL {quoteLoading && <span className="opacity-50">…</span>}
+                </span>
                 <span className="font-black text-lg">Rs {total.toFixed(2)}</span>
               </div>
+              {quote && multiplier !== 1 && (
+                <div className="text-[10px] tracking-widest text-slate-500 pt-1">
+                  DYNAMIC PRICING APPLIED
+                </div>
+              )}
             </div>
 
             {err && (

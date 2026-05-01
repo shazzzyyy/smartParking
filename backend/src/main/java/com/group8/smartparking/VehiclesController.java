@@ -44,8 +44,8 @@ public class VehiclesController {
         if (req.userId == null || req.licensePlate == null || req.vehicleType == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "userId, licensePlate, vehicleType required");
         }
-        if (!List.of("Car", "Bike", "EV").contains(req.vehicleType)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "vehicleType must be Car, Bike or EV");
+        if (!List.of("Car", "Bike", "EBike", "EV").contains(req.vehicleType)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "vehicleType must be Car, Bike, EBike or EV");
         }
         Integer dup = jdbc.queryForObject(
             "SELECT COUNT(*) FROM Vehicles WHERE LicensePlate = ?", Integer.class, req.licensePlate

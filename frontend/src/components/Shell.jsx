@@ -72,27 +72,12 @@ export default function Shell({ children }) {
       {children}
 
       <footer className="bg-[#16202f] border-t border-white/5 anim-fade-up delay-700">
-        <div className="px-8 lg:px-14 py-5 flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-10 lg:gap-14 flex-wrap">
-            <FootStat label="ENGINE" value="MSSQL 2022" />
-            <FootStat label="STACK"  value="SPRING · REACT" />
-            <FootStat label="GROUP"  value="08" />
-            <FootStat label="OPEN"   value="08:00 – 20:00" />
-          </div>
+        <div className="px-8 lg:px-14 py-4 flex items-center justify-end">
           <div className="text-[10px] tracking-[0.4em] text-slate-500">
             SMART PARKING SYSTEM
           </div>
         </div>
       </footer>
-    </div>
-  );
-}
-
-function FootStat({ label, value }) {
-  return (
-    <div>
-      <div className="text-[9px] tracking-[0.3em] text-slate-500 mb-0.5 font-bold">{label}</div>
-      <div className="text-sm font-black text-white tracking-wide">{value}</div>
     </div>
   );
 }
@@ -137,7 +122,7 @@ export function Badge({ status }) {
   const map = {
     Available:   "bg-emerald-500/20 text-emerald-900 border-emerald-900/30",
     Occupied:    "bg-[#1e2d44]/15 text-[#1e2d44] border-[#1e2d44]/20",
-    Reserved:    "bg-amber-500/20 text-amber-900 border-amber-900/40",
+    Reserved:    "bg-sky-500/20 text-sky-900 border-sky-900/40",
     Maintenance: "bg-red-500/20 text-red-900 border-red-900/30",
     Booked:      "bg-emerald-500/20 text-emerald-900 border-emerald-900/30",
     Completed:   "bg-[#1e2d44]/15 text-[#1e2d44] border-[#1e2d44]/20",

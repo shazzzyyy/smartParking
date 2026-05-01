@@ -2,6 +2,9 @@ package com.group8.smartparking;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.SqlOutParameter;
+import org.springframework.jdbc.core.SqlParameter;
+import org.springframework.jdbc.core.simple.SimpleJdbcCall;
 import org.springframework.jdbc.core.simple.SimpleJdbcInsert;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -9,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -28,11 +32,32 @@ public class ReservationsController {
 
     public record CreateReq(Integer userId, Integer vehicleId, Integer slotId,
                              String startTime, String endTime) {}
+    public record CheckInReq(String code) {}
+    public record ExtensionReq(Integer userId, String requestedEndTime, String userNote) {}
 
     private String code() {
         StringBuilder sb = new StringBuilder(6);
         for (int i = 0; i < 6; i++) sb.append(ALPHA.charAt(RNG.nextInt(ALPHA.length())));
         return sb.toString();
+    }
+
+    private BigDecimal calculatePrice(String slotType, LocalDateTime start, LocalDateTime end) {
+        SimpleJdbcCall call = new SimpleJdbcCall(jdbc)
+            .withProcedureName("sp_CalculatePrice")
+            .withoutProcedureColumnMetaDataAccess()
+            .declareParameters(
+                new SqlParameter("SlotType", Types.VARCHAR),
+                new SqlParameter("Start",    Types.TIMESTAMP),
+                new SqlParameter("End",      Types.TIMESTAMP),
+                new SqlOutParameter("Total", Types.DECIMAL)
+            );
+        Map<String, Object> out = call.execute(Map.of(
+            "SlotType", slotType,
+            "Start",    Timestamp.valueOf(start),
+            "End",      Timestamp.valueOf(end)
+        ));
+        Object total = out.get("Total");
+        return total == null ? BigDecimal.ZERO : (BigDecimal) total;
     }
 
     @PostMapping
@@ -64,7 +89,6 @@ public class ReservationsController {
             throw new ApiException(HttpStatus.CONFLICT, "Slot not available (status: " + status + ")");
         }
 
-        // Rule: vehicle must exist, belong to the user, and match the slot type.
         Map<String, Object> vehicle;
         try {
             vehicle = jdbc.queryForMap(
@@ -86,9 +110,6 @@ public class ReservationsController {
                 "Vehicle type (" + vehicleType + ") does not match slot type (" + slotType + ").");
         }
 
-        // Rule: one active reservation per vehicle at a time.
-        // Block any new booking while the vehicle still has a Booked reservation
-        // whose end time is in the future.
         Integer activeForVehicle = jdbc.queryForObject(
             "SELECT COUNT(*) FROM Reservations " +
             "WHERE VehicleID = ? AND ReservationStatus = 'Booked' " +
@@ -119,14 +140,7 @@ public class ReservationsController {
 
         jdbc.update("UPDATE ParkingSlots SET Status = 'Reserved' WHERE SlotID = ?", req.slotId);
 
-        BigDecimal rate = jdbc.queryForObject(
-            "SELECT TOP 1 PricePerHour FROM PricingRules WHERE SlotType = ? ORDER BY EffectiveFrom DESC",
-            BigDecimal.class, slotType
-        );
-        double hours = java.time.Duration.between(start, end).toMinutes() / 60.0;
-        BigDecimal total = rate == null
-            ? BigDecimal.ZERO
-            : rate.multiply(BigDecimal.valueOf(hours)).setScale(2, java.math.RoundingMode.HALF_UP);
+        BigDecimal total = calculatePrice(slotType, start, end);
 
         return Map.of(
             "reservationId", id.intValue(),
@@ -140,7 +154,8 @@ public class ReservationsController {
     public List<Map<String, Object>> mine(@RequestParam int userId) {
         String sql = """
             SELECT r.ReservationID, r.StartTime, r.EndTime, r.ReservationStatus, r.VerificationCode,
-                   s.SlotNumber, s.SlotLocation, s.SlotType,
+                   r.CheckInTime, r.CheckOutTime, r.FinalAmount,
+                   s.SlotID, s.SlotNumber, s.SlotLocation, s.SlotType,
                    v.LicensePlate,
                    p.PaymentID, p.Amount, p.PaymentMethod, p.PaymentStatus, p.PaymentDate
             FROM Reservations r
@@ -150,13 +165,22 @@ public class ReservationsController {
             WHERE r.UserID = ?
             ORDER BY r.StartTime DESC
         """;
-        return jdbc.query(sql, (rs, i) -> {
+        List<Map<String, Object>> rows = jdbc.query(sql, (rs, i) -> {
             Map<String, Object> m = new HashMap<>();
             m.put("reservationId", rs.getInt("ReservationID"));
-            m.put("startTime", rs.getTimestamp("StartTime").toLocalDateTime().toString());
-            m.put("endTime", rs.getTimestamp("EndTime").toLocalDateTime().toString());
+            LocalDateTime st = rs.getTimestamp("StartTime").toLocalDateTime();
+            LocalDateTime et = rs.getTimestamp("EndTime").toLocalDateTime();
+            m.put("startTime", st.toString());
+            m.put("endTime", et.toString());
+            m.put("_startTimeRaw", st);
+            m.put("_endTimeRaw", et);
             m.put("status", rs.getString("ReservationStatus"));
             m.put("verificationCode", rs.getString("VerificationCode"));
+            Timestamp ci = rs.getTimestamp("CheckInTime");
+            Timestamp co = rs.getTimestamp("CheckOutTime");
+            m.put("checkInTime",  ci == null ? null : ci.toLocalDateTime().toString());
+            m.put("checkOutTime", co == null ? null : co.toLocalDateTime().toString());
+            m.put("finalAmount", rs.getBigDecimal("FinalAmount"));
             m.put("slotNumber", rs.getString("SlotNumber"));
             m.put("location", rs.getString("SlotLocation"));
             m.put("slotType", rs.getString("SlotType"));
@@ -172,15 +196,34 @@ public class ReservationsController {
             }
             return m;
         }, userId);
+
+        // For unpaid reservations, compute the estimated amount via sp_CalculatePrice
+        // so the front-end can show / submit the right value at payment time.
+        for (Map<String, Object> row : rows) {
+            if (!"Unpaid".equals(row.get("paymentStatus"))) {
+                row.remove("_startTimeRaw");
+                row.remove("_endTimeRaw");
+                continue;
+            }
+            String slotType = (String) row.get("slotType");
+            LocalDateTime st = (LocalDateTime) row.remove("_startTimeRaw");
+            LocalDateTime et = (LocalDateTime) row.remove("_endTimeRaw");
+            try {
+                BigDecimal estimate = calculatePrice(slotType, st, et);
+                row.put("amount", estimate);
+            } catch (Exception ex) {
+                row.put("amount", BigDecimal.ZERO);
+            }
+        }
+        return rows;
     }
 
     @PatchMapping("/{id}/cancel")
-    @Transactional
     public Map<String, Object> cancel(@PathVariable int id, @RequestParam int userId) {
         Map<String, Object> row;
         try {
             row = jdbc.queryForMap(
-                "SELECT SlotID, StartTime FROM Reservations " +
+                "SELECT SlotID, StartTime, CheckInTime FROM Reservations " +
                 "WHERE ReservationID = ? AND UserID = ? AND ReservationStatus = 'Booked'",
                 id, userId
             );
@@ -188,10 +231,13 @@ public class ReservationsController {
             throw new ApiException(HttpStatus.NOT_FOUND, "Reservation not found or not cancellable");
         }
 
-        Integer slotId = (Integer) row.get("SlotID");
         Timestamp startTs = (Timestamp) row.get("StartTime");
+        Object checkIn = row.get("CheckInTime");
+        if (checkIn != null) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                "Already checked in — use check-out instead of cancel.");
+        }
 
-        // Rule: cancellation must be at least 1 hour before the start time.
         long minutesUntilStart =
             java.time.Duration.between(LocalDateTime.now(), startTs.toLocalDateTime()).toMinutes();
         if (minutesUntilStart < 60) {
@@ -200,8 +246,171 @@ public class ReservationsController {
                 "(only " + Math.max(minutesUntilStart, 0) + " minutes left).");
         }
 
+        // trigger trg_Reservation_StatusChange will free the slot
         jdbc.update("UPDATE Reservations SET ReservationStatus = 'Cancelled' WHERE ReservationID = ?", id);
-        jdbc.update("UPDATE ParkingSlots SET Status = 'Available' WHERE SlotID = ?", slotId);
         return Map.of("reservationId", id, "status", "Cancelled");
+    }
+
+    @PostMapping("/checkin")
+    public Map<String, Object> checkIn(@RequestBody CheckInReq req) {
+        if (req.code == null || req.code.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Verification code required");
+        }
+        SimpleJdbcCall call = new SimpleJdbcCall(jdbc)
+            .withProcedureName("sp_CheckIn")
+            .withoutProcedureColumnMetaDataAccess()
+            .declareParameters(
+                new SqlParameter("VerificationCode", Types.VARCHAR),
+                new SqlOutParameter("ReservationID",  Types.INTEGER),
+                new SqlOutParameter("SlotNumber",     Types.VARCHAR),
+                new SqlOutParameter("UserName",       Types.VARCHAR)
+            );
+        Map<String, Object> out;
+        try {
+            out = call.execute(Map.of("VerificationCode", req.code.trim().toUpperCase()));
+        } catch (org.springframework.jdbc.UncategorizedSQLException ex) {
+            String msg = ex.getMostSpecificCause().getMessage();
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                msg == null ? "Check-in failed" : msg);
+        }
+        return Map.of(
+            "reservationId", out.get("ReservationID"),
+            "slotNumber",    out.get("SlotNumber"),
+            "userName",      out.get("UserName"),
+            "status",        "CheckedIn"
+        );
+    }
+
+    @PostMapping("/{id}/extensions")
+    public Map<String, Object> requestExtension(@PathVariable int id, @RequestBody ExtensionReq req) {
+        if (req.userId == null || req.requestedEndTime == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "userId and requestedEndTime required");
+        }
+        Map<String, Object> reservation;
+        try {
+            reservation = jdbc.queryForMap(
+                "SELECT UserID, EndTime, ReservationStatus FROM Reservations WHERE ReservationID = ?",
+                id
+            );
+        } catch (Exception ex) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Reservation not found");
+        }
+        Integer ownerId = (Integer) reservation.get("UserID");
+        if (ownerId == null || !ownerId.equals(req.userId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Not your reservation");
+        }
+        if (!"Booked".equals(reservation.get("ReservationStatus"))) {
+            throw new ApiException(HttpStatus.CONFLICT, "Reservation is not active");
+        }
+        Timestamp currentEnd = (Timestamp) reservation.get("EndTime");
+        LocalDateTime requested = LocalDateTime.parse(req.requestedEndTime);
+        if (!requested.isAfter(currentEnd.toLocalDateTime())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                "Requested end time must be after current end time");
+        }
+
+        Integer pending = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM ExtensionRequests WHERE ReservationID = ? AND Status = 'Pending'",
+            Integer.class, id
+        );
+        if (pending != null && pending > 0) {
+            throw new ApiException(HttpStatus.CONFLICT, "An extension request is already pending");
+        }
+
+        Map<String, Object> values = new HashMap<>();
+        values.put("ReservationID", id);
+        values.put("RequestedEndTime", Timestamp.valueOf(requested));
+        values.put("UserNote", req.userNote);
+        values.put("Status", "Pending");
+        values.put("CreatedAt", Timestamp.valueOf(LocalDateTime.now()));
+
+        Number extId = new SimpleJdbcInsert(jdbc)
+            .withTableName("ExtensionRequests")
+            .usingGeneratedKeyColumns("ExtensionRequestID")
+            .usingColumns("ReservationID", "RequestedEndTime", "UserNote", "Status", "CreatedAt")
+            .executeAndReturnKey(values);
+
+        return Map.of(
+            "extensionRequestId", extId.intValue(),
+            "reservationId", id,
+            "requestedEndTime", requested.toString(),
+            "status", "Pending"
+        );
+    }
+
+    @GetMapping("/{id}/extensions")
+    public List<Map<String, Object>> myExtensions(@PathVariable int id, @RequestParam int userId) {
+        Integer owner;
+        try {
+            owner = jdbc.queryForObject(
+                "SELECT UserID FROM Reservations WHERE ReservationID = ?",
+                Integer.class, id
+            );
+        } catch (Exception ex) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Reservation not found");
+        }
+        if (owner == null || owner != userId) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Not your reservation");
+        }
+        return jdbc.query(
+            "SELECT ExtensionRequestID, RequestedEndTime, UserNote, Status, AdminNote, CreatedAt, ResolvedAt " +
+            "FROM ExtensionRequests WHERE ReservationID = ? ORDER BY CreatedAt DESC",
+            (rs, i) -> {
+                Map<String, Object> m = new HashMap<>();
+                m.put("extensionRequestId", rs.getInt("ExtensionRequestID"));
+                m.put("requestedEndTime", rs.getTimestamp("RequestedEndTime").toLocalDateTime().toString());
+                m.put("userNote", rs.getString("UserNote"));
+                m.put("status", rs.getString("Status"));
+                m.put("adminNote", rs.getString("AdminNote"));
+                m.put("createdAt", rs.getTimestamp("CreatedAt").toLocalDateTime().toString());
+                Timestamp ra = rs.getTimestamp("ResolvedAt");
+                m.put("resolvedAt", ra == null ? null : ra.toLocalDateTime().toString());
+                return m;
+            }, id
+        );
+    }
+
+    @PostMapping("/{id}/checkout")
+    public Map<String, Object> checkOut(@PathVariable int id, @RequestParam int userId) {
+        // Verify ownership (the proc itself doesn't check user)
+        Integer owner;
+        try {
+            owner = jdbc.queryForObject(
+                "SELECT UserID FROM Reservations WHERE ReservationID = ?",
+                Integer.class, id
+            );
+        } catch (Exception ex) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Reservation not found");
+        }
+        if (owner == null || owner != userId) {
+            // Allow Admin to check out anyone too
+            String role = jdbc.queryForObject(
+                "SELECT UserRole FROM Users WHERE UserID = ?", String.class, userId
+            );
+            if (!"Admin".equals(role)) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "Not your reservation");
+            }
+        }
+
+        SimpleJdbcCall call = new SimpleJdbcCall(jdbc)
+            .withProcedureName("sp_CheckOut")
+            .withoutProcedureColumnMetaDataAccess()
+            .declareParameters(
+                new SqlParameter("ReservationID", Types.INTEGER),
+                new SqlOutParameter("FinalAmount", Types.DECIMAL)
+            );
+        Map<String, Object> out;
+        try {
+            out = call.execute(Map.of("ReservationID", id));
+        } catch (org.springframework.jdbc.UncategorizedSQLException ex) {
+            String msg = ex.getMostSpecificCause().getMessage();
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                msg == null ? "Check-out failed" : msg);
+        }
+        return Map.of(
+            "reservationId", id,
+            "finalAmount",   out.get("FinalAmount"),
+            "status",        "Completed"
+        );
     }
 }

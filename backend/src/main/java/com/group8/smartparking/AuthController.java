@@ -37,12 +37,14 @@ public class AuthController {
         Number id = new SimpleJdbcInsert(jdbc)
             .withTableName("Users")
             .usingGeneratedKeyColumns("UserID")
+            .usingColumns("FullName", "Email", "PasswordHash", "Phone", "UserRole", "RegistrationDate")
             .executeAndReturnKey(Map.of(
                 "FullName", req.fullName,
                 "Email", req.email,
                 "PasswordHash", req.password,
                 "Phone", req.phone == null ? "" : req.phone,
-                "UserRole", "User"
+                "UserRole", "User",
+                "RegistrationDate", new java.sql.Date(System.currentTimeMillis())
             ));
 
         return Map.of(

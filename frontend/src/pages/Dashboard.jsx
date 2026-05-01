@@ -36,6 +36,13 @@ export default function Dashboard() {
     try { setSlots(await api.slots()); } catch (e) { setErr(e.message); }
   };
 
+  // Tick every 30s so "free in Xm" countdowns stay accurate
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30000);
+    return () => clearInterval(id);
+  }, []);
+
   if (!user) return null;
 
   const inLocation = slots.filter((s) => s.location === location);
@@ -52,6 +59,11 @@ export default function Dashboard() {
     reserved:  slots.filter((s) => s.status === "Reserved").length,
   };
 
+  // Soonest-to-free slot in the current location (excluding Available)
+  const nextFreeUp = inLocation
+    .filter((s) => s.freeAt && s.status !== "Available")
+    .sort((a, b) => new Date(a.freeAt) - new Date(b.freeAt))[0] || null;
+
   // Per-location breakdown (used in sidebar card)
   const byLocation = locations.map((loc) => {
     const inLoc = slots.filter((s) => s.location === loc);
@@ -60,7 +72,7 @@ export default function Dashboard() {
   });
 
   // Per-type availability
-  const byType = ["Car", "Bike", "EV"].map((t) => ({
+  const byType = ["Car", "Bike", "EBike", "EV"].map((t) => ({
     type: t,
     avail: slots.filter((s) => s.type === t && s.status === "Available").length,
     total: slots.filter((s) => s.type === t).length,
@@ -90,7 +102,11 @@ export default function Dashboard() {
     };
   })();
   const slotDims = selected
-    ? selected.type === "Bike" ? "2.5 m × 1.0 m" : selected.type === "EV" ? "5.0 m × 2.7 m · charger" : "5.0 m × 2.5 m"
+    ? selected.type === "Bike" || selected.type === "EBike"
+        ? "2.5 m × 1.0 m"
+        : selected.type === "EV"
+            ? "5.0 m × 2.7 m · charger"
+            : "5.0 m × 2.5 m"
     : "—";
 
   return (
@@ -100,15 +116,23 @@ export default function Dashboard() {
           ? `NO. ${selected.slotNumber} · ${selected.location.toUpperCase()} · ${selected.type.toUpperCase()}`
           : "SELECT A SLOT"}
         title={selected ? `SLOT ${selected.slotNumber}` : "PICK A SLOT"}
-        subtitle={selected
-          ? "Selected spot. Review your booking below, then confirm."
-          : "Click any available slot from the floor plan below."}
+        subtitle={
+          selected
+            ? "Selected spot. Review your booking below, then confirm."
+            : nextFreeUp
+              ? `Slot ${nextFreeUp.slotNumber} (${nextFreeUp.status.toLowerCase()}) frees up in ${fmtFreeIn(nextFreeUp.freeAt)} — at ${fmtFreeAt(nextFreeUp.freeAt)}.`
+              : "Click any available slot from the floor plan below."
+        }
       >
         <HeroStat label="AVAILABLE" value={counts.available} />
         <HeroStat label="RESERVED" value={counts.reserved} />
         <HeroStat label="OCCUPIED" value={counts.occupied} />
         <HeroStat label="LOAD" value={`${occupancyPct}%`} />
-        <HeroStat label="RATE" value={selected ? `Rs ${rate}/h` : "—"} />
+        {nextFreeUp ? (
+          <HeroStat label="↻ NEXT FREE" value={fmtFreeIn(nextFreeUp.freeAt)} />
+        ) : (
+          <HeroStat label="RATE" value={selected ? `Rs ${rate}/h` : "—"} />
+        )}
       </Hero>
 
       <Cream>
@@ -214,6 +238,12 @@ export default function Dashboard() {
                     <Spec k="ADJACENT FREE" v={`${selectedNeighbours.neighbourAvail} / 2`} />
                     <Spec k="SECTION" v={selected.slotNumber.replace(/[0-9]/g, "") || "—"} />
                     <Spec k="STATUS" v={selected.status.toUpperCase()} />
+                    {selected.freeAt && selected.status !== "Available" && (
+                      <Spec k="↻ FREE IN" v={fmtFreeIn(selected.freeAt)} />
+                    )}
+                    {selected.freeAt && selected.status !== "Available" && (
+                      <Spec k="↻ AT" v={fmtFreeAt(selected.freeAt)} />
+                    )}
                   </div>
                 )}
 
@@ -279,8 +309,11 @@ export default function Dashboard() {
 }
 
 /* ─────────────── Floor Plan (SVG architectural sketch) ─────────────── */
-const SLOTS_PER_ROW = 6;
-const SW = 84;          // slot width
+// Row capacity: dynamically scales from MIN_PER_ROW (5) to MAX_PER_ROW (30).
+// The lot width is fixed; slot box width scales down as you pack more in.
+const MIN_PER_ROW = 5;
+const MAX_PER_ROW = 30;
+const LOT_W = 1100;     // fixed total width
 const SH = 116;         // slot height
 const SGAP = 6;         // slot gap
 const LANE = 60;        // drive lane height
@@ -289,45 +322,62 @@ const BAY_GAP = 32;     // separator between bays
 const GATE_H = 90;      // bottom strip for gates (room for label + arrow + opening)
 
 function FloorPlan({ slots, location, selectedId, onSelect }) {
-  // Stable ordering by slotNumber so layout doesn't jump
+  // Group slots into rows by their LaneID. Each lane = one visual row.
+  // Slots with no laneId share a single "default" row, sorted by slotNumber.
   const sorted = [...slots].sort((a, b) =>
     a.slotNumber.localeCompare(b.slotNumber, undefined, { numeric: true })
   );
 
-  // Chunk into rows of SLOTS_PER_ROW
-  const rows = [];
-  for (let i = 0; i < sorted.length; i += SLOTS_PER_ROW) {
-    rows.push(sorted.slice(i, i + SLOTS_PER_ROW));
+  const laneMap = new Map();
+  for (const s of sorted) {
+    const key = s.laneId == null ? "_default" : s.laneId;
+    if (!laneMap.has(key)) laneMap.set(key, []);
+    laneMap.get(key).push(s);
   }
-  // Group into bays (top row + bottom row across a drive lane)
-  const bays = [];
-  for (let i = 0; i < rows.length; i += 2) {
-    bays.push({ top: rows[i], bottom: rows[i + 1] || [] });
-  }
+  // Order lanes by smallest slotNumber within each
+  const lanes = Array.from(laneMap.values()).sort((a, b) =>
+    a[0].slotNumber.localeCompare(b[0].slotNumber, undefined, { numeric: true })
+  );
 
-  // Lot dimensions
-  const lotW = PAD * 2 + SLOTS_PER_ROW * SW + (SLOTS_PER_ROW - 1) * SGAP;
-  const bayH = (b) => SH + (b.bottom.length > 0 ? LANE + SH : 0);
-  const interiorH = bays.reduce((sum, b, i) => sum + bayH(b) + (i > 0 ? BAY_GAP : 0), 0);
+  // Row capacity from the largest lane (caps at MAX_PER_ROW)
+  const maxLaneSize = Math.max(MIN_PER_ROW, ...lanes.map((l) => l.length));
+  const rowCapacity = Math.min(MAX_PER_ROW, maxLaneSize);
+
+  // If a lane exceeds MAX_PER_ROW, split it into multiple rows (still grouped together)
+  const rows = [];
+  for (const lane of lanes) {
+    for (let i = 0; i < lane.length; i += rowCapacity) {
+      rows.push(lane.slice(i, i + rowCapacity));
+    }
+  }
+  if (rows.length === 0) rows.push([]);
+
+  // One bay per lane row. Drive lanes appear between consecutive bays
+  // (rendered after every bay except the last).
+  const bays = rows.map((row) => ({ top: row, bottom: [] }));
+
+  // Lot dimensions — fixed width, slot width derives from rowCapacity
+  const lotW = LOT_W;
+  const SW = (lotW - PAD * 2 - (rowCapacity - 1) * SGAP) / rowCapacity;
+  const interiorH = bays.length * SH + Math.max(0, bays.length - 1) * LANE;
   const lotH = PAD + interiorH + GATE_H;
 
-  // Compute (x,y) for every slot
+  // Compute (x,y) for every slot. Single-row bays separated by drive lanes.
+  // Alternate flip direction so neighbouring bays face the lane between them.
   const placed = [];
   let cursorY = PAD;
   bays.forEach((bay, bIdx) => {
-    if (bIdx > 0) cursorY += BAY_GAP;
+    const flip = bIdx % 2 === 1; // odd-indexed bays face up (curb at bottom)
     bay.top.forEach((s, c) => {
-      placed.push({ ...s, x: PAD + c * (SW + SGAP), y: cursorY, flip: false });
-    });
-    if (bay.bottom.length > 0) {
-      const bottomY = cursorY + SH + LANE;
-      bay.bottom.forEach((s, c) => {
-        placed.push({ ...s, x: PAD + c * (SW + SGAP), y: bottomY, flip: true });
+      placed.push({
+        ...s,
+        x: PAD + c * (SW + SGAP), y: cursorY, w: SW, flip,
+        bayIdx: bIdx,
+        isLastInRow: c === bay.top.length - 1,
       });
-      cursorY += SH + LANE + SH;
-    } else {
-      cursorY += SH;
-    }
+    });
+    cursorY += SH;
+    if (bIdx < bays.length - 1) cursorY += LANE;
   });
 
   // Gate positions (carved into bottom wall)
@@ -415,44 +465,38 @@ function FloorPlan({ slots, location, selectedId, onSelect }) {
           <rect key={i} x={x} y={y} width="12" height="12" fill="#1e2d44" stroke="rgba(255,255,255,0.3)" strokeWidth="1" />
         ))}
 
-        {/* DRIVE LANES + flow arrows */}
+        {/* DRIVE LANES + flow arrows — one between every pair of consecutive bays */}
         {(() => {
           const lanes = [];
-          let cy = PAD + SH;
-          bays.forEach((bay, bIdx) => {
-            if (bay.bottom.length > 0) {
-              const laneY = cy + LANE / 2;
-              lanes.push(
-                <g key={`lane-${bIdx}`}>
-                  {/* lane fill */}
-                  <rect x={PAD - 6} y={cy} width={lotW - 2*PAD + 12} height={LANE} fill="rgba(0,0,0,0.18)" />
-                  {/* yellow center dashed stripe */}
-                  <line
-                    x1={PAD} y1={laneY} x2={lotW - PAD} y2={laneY}
-                    stroke="#facc15" strokeWidth="1.5" strokeDasharray="14 10" opacity="0.6"
-                  />
-                  {/* flow direction arrow */}
-                  <line
-                    x1={PAD + 30} y1={laneY - 14}
-                    x2={lotW - PAD - 30} y2={laneY - 14}
-                    stroke="#facc15" strokeWidth="1.2" opacity="0.55"
-                    markerEnd="url(#laneArrow)"
-                  />
-                  <text x={lotW / 2} y={laneY + 18} textAnchor="middle" fill="white" opacity="0.35" fontSize="9" fontWeight="700" letterSpacing="3">
-                    DRIVE LANE
-                  </text>
-                </g>
-              );
-              cy += LANE + SH;
-            }
-            cy += BAY_GAP;
-          });
+          let cy = PAD + SH; // bottom edge of first bay
+          for (let bIdx = 0; bIdx < bays.length - 1; bIdx++) {
+            const laneY = cy + LANE / 2;
+            lanes.push(
+              <g key={`lane-${bIdx}`}>
+                <rect x={PAD - 6} y={cy} width={lotW - 2*PAD + 12} height={LANE} fill="rgba(0,0,0,0.18)" />
+                <line
+                  x1={PAD} y1={laneY} x2={lotW - PAD} y2={laneY}
+                  stroke="#facc15" strokeWidth="1.5" strokeDasharray="14 10" opacity="0.6"
+                />
+                <line
+                  x1={PAD + 30} y1={laneY - 14}
+                  x2={lotW - PAD - 30} y2={laneY - 14}
+                  stroke="#facc15" strokeWidth="1.2" opacity="0.55"
+                  markerEnd="url(#laneArrow)"
+                />
+                <text x={lotW / 2} y={laneY + 18} textAnchor="middle" fill="white" opacity="0.35" fontSize="9" fontWeight="700" letterSpacing="3">
+                  DRIVE LANE
+                </text>
+              </g>
+            );
+            cy += LANE + SH;
+          }
           return lanes;
         })()}
 
-        {/* mid pillars between every 2 slots, top + bottom of each row */}
+        {/* mid pillars between adjacent slots (skip last-in-row to avoid stray pillars) */}
         {placed.map((s, i) => {
-          // Place a pillar to the right of every other slot, vertically centered between rows
+          if (s.isLastInRow) return null;
           if ((i % 2) !== 1) return null;
           return (
             <rect
@@ -524,16 +568,18 @@ function FloorPlan({ slots, location, selectedId, onSelect }) {
 }
 
 function SlotShape({ slot, selected, isNearest, onSelect }) {
+  const SW = slot.w;     // slot width comes from FloorPlan layout (dynamic)
   const isAvail = slot.status === "Available";
+  const fontMain = SW < 50 ? 14 : SW < 70 ? 18 : 22;
+  const fontSub = SW < 50 ? 7 : 9;
   const colors = {
     Available:   { fill: "rgba(255,255,255,0.06)", stroke: "rgba(255,255,255,0.45)", text: "white" },
-    Reserved:    { fill: "rgba(245,158,11,0.15)",  stroke: "rgba(245,158,11,0.55)",  text: "#fcd34d" },
+    Reserved:    { fill: "rgba(56,189,248,0.16)",  stroke: "rgba(56,189,248,0.55)", text: "#7dd3fc" },
     Occupied:    { fill: "#16202f",                stroke: "rgba(255,255,255,0.15)", text: "rgba(255,255,255,0.4)" },
     Maintenance: { fill: "rgba(239,68,68,0.10)",   stroke: "rgba(239,68,68,0.4)",    text: "#fca5a5" },
   };
   const c = colors[slot.status] || colors.Available;
 
-  // Selected colour overrides
   const fill   = selected ? "#cabf9e" : c.fill;
   const stroke = selected ? "#cabf9e" : c.stroke;
   const text   = selected ? "#1e2d44" : c.text;
@@ -543,7 +589,6 @@ function SlotShape({ slot, selected, isNearest, onSelect }) {
       onClick={() => isAvail && onSelect(slot.slotId)}
       style={{ cursor: isAvail ? "pointer" : "not-allowed" }}
     >
-      {/* slot rectangle */}
       <rect
         x={slot.x} y={slot.y}
         width={SW} height={SH}
@@ -551,44 +596,74 @@ function SlotShape({ slot, selected, isNearest, onSelect }) {
         strokeWidth={selected ? 2.5 : 1.5}
         rx="4"
       />
-      {/* maintenance hatch overlay */}
       {slot.status === "Maintenance" && (
         <rect x={slot.x} y={slot.y} width={SW} height={SH} fill="url(#hatch)" rx="4" />
       )}
-      {/* curb stop at slot head (where the wheels stop) */}
       <line
         x1={slot.x + 10} x2={slot.x + SW - 10}
         y1={slot.flip ? slot.y + SH - 8 : slot.y + 8}
         y2={slot.flip ? slot.y + SH - 8 : slot.y + 8}
         stroke={text} strokeOpacity="0.4" strokeWidth="2.5" strokeLinecap="round"
       />
-      {/* slot lines on sides (parking demarcation) */}
       <line x1={slot.x} y1={slot.y + 4} x2={slot.x} y2={slot.y + SH - 4} stroke={stroke} strokeWidth="0.5" />
       <line x1={slot.x + SW} y1={slot.y + 4} x2={slot.x + SW} y2={slot.y + SH - 4} stroke={stroke} strokeWidth="0.5" />
 
-      {/* slot number — always upright (regardless of slot facing direction) */}
       <text
         x={slot.x + SW/2}
         y={slot.y + SH/2 + 2}
         textAnchor="middle"
         fill={text}
-        fontSize="22"
+        fontSize={fontMain}
         fontWeight="900"
       >
         {slot.slotNumber}
       </text>
       <text
         x={slot.x + SW/2}
-        y={slot.y + SH/2 + 22}
+        y={slot.y + SH/2 + fontMain + 4}
         textAnchor="middle"
         fill={text}
-        fontSize="9"
+        fontSize={fontSub}
         fontWeight="700"
         opacity="0.65"
-        letterSpacing="2"
+        letterSpacing={SW < 50 ? 1 : 2}
       >
-        {slot.type === "Bike" ? "BIKE" : slot.type === "EV" ? "EV" : "CAR"}
+        {slot.type === "Bike" ? "BIKE" : slot.type === "EBike" ? "E-BIKE" : slot.type === "EV" ? "EV" : "CAR"}
       </text>
+
+      {slot.freeAt && !isAvail && slot.status !== "Maintenance" && (
+        <>
+          <text
+            x={slot.x + SW/2}
+            y={slot.y + SH - 22}
+            textAnchor="middle"
+            fill={text}
+            fontSize={fontSub}
+            fontWeight="900"
+            opacity="0.95"
+            letterSpacing="1"
+          >
+            ↻ {fmtFreeIn(slot.freeAt)}
+          </text>
+          <text
+            x={slot.x + SW/2}
+            y={slot.y + SH - 10}
+            textAnchor="middle"
+            fill={text}
+            fontSize={Math.max(7, fontSub - 2)}
+            fontWeight="700"
+            opacity="0.55"
+            letterSpacing="1"
+          >
+            @ {fmtFreeAt(slot.freeAt)}
+          </text>
+        </>
+      )}
+      <title>
+        {slot.status === "Available"
+          ? `Slot ${slot.slotNumber} — Available`
+          : `Slot ${slot.slotNumber} — ${slot.status}${slot.freeAt ? ` · free in ${fmtFreeIn(slot.freeAt)} (at ${fmtFreeAt(slot.freeAt, true)})` : ""}`}
+      </title>
 
       {/* ★ closest-to-entrance badge */}
       {isNearest && (
@@ -616,7 +691,7 @@ function Legend() {
   const items = [
     { c: "bg-white/30 border-white/40",            l: "AVAILABLE" },
     { c: "bg-[#cabf9e] border-[#cabf9e]",          l: "SELECTED" },
-    { c: "bg-amber-500/30 border-amber-500/50",    l: "RESERVED" },
+    { c: "bg-sky-400/30 border-sky-400/60",  l: "RESERVED" },
     { c: "bg-[#16202f] border-white/10",           l: "OCCUPIED" },
   ];
   return (
@@ -631,8 +706,35 @@ function Legend() {
         <span className="text-emerald-700 text-[10px] font-black">★</span>
         <span className="text-emerald-900">NEAREST TO ENTRANCE — BEST PICK</span>
       </span>
+      <span className="flex items-center gap-1.5 bg-sky-500/15 border border-sky-700/40 rounded px-1.5 py-0.5">
+        <span className="text-sky-700 text-[10px] font-black">↻</span>
+        <span className="text-sky-900">FREES UP IN — COUNTDOWN</span>
+      </span>
     </div>
   );
+}
+
+function fmtFreeAt(iso, withDate = false) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const pad = (n) => String(n).padStart(2, "0");
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  if (!withDate) return hm;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}`;
+}
+
+function fmtFreeIn(iso) {
+  if (!iso) return "";
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return "now";
+  const totalMin = Math.round(ms / 60000);
+  if (totalMin < 60) return `${totalMin}m`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h < 24) return m === 0 ? `${h}h` : `${h}h ${m}m`;
+  const days = Math.floor(h / 24);
+  const rh = h % 24;
+  return rh === 0 ? `${days}d` : `${days}d ${rh}h`;
 }
 
 function Pill({ children }) {

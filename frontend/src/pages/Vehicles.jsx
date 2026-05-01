@@ -135,8 +135,8 @@ function AddModal({ userId, onClose, onAdded }) {
           <Field label="LICENSE PLATE" value={form.licensePlate} onChange={change("licensePlate")} placeholder="LEA-1234" mono required />
           <div>
             <label className="block text-[10px] tracking-[0.3em] text-slate-400 mb-2 font-bold">TYPE</label>
-            <div className="grid grid-cols-3 gap-2">
-              {["Car", "Bike", "EV"].map((t) => (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {["Car", "Bike", "EBike", "EV"].map((t) => (
                 <button
                   key={t}
                   type="button"

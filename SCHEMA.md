@@ -34,9 +34,181 @@ PricingRules ── priced by ──> ParkingSlots (by SlotType)
 
 ---
 
-## 2. Tables — purpose, columns, and rationale
+## 2. Entity-Relationship Diagram (Crow's Foot notation)
 
-### 2.1 `Users`
+![ER Diagram](docs/erd.jpeg)
+
+The ERD above is the formal picture of the schema. It uses **Crow's Foot notation** — a standard way of drawing ER diagrams where the symbol at each end of a relationship line tells you the **cardinality** (how many of one side relate to how many of the other).
+
+### 2.1 How to read every symbol on the diagram
+
+#### Column-level badges (left of each column name)
+
+| Badge | Meaning | Example in our schema |
+|---|---|---|
+| **PK** | Primary Key — uniquely identifies a row | `UserID`, `VehicleID`, `SlotID` |
+| **FK** | Foreign Key — points to another table's primary key | `Reservations.UserID` → `Users.UserID` |
+| **UQ** | Unique constraint — value must not repeat | `Email`, `LicensePlate`, `SlotNumber`, `VerificationCode` |
+| **CK** | Check constraint — value must match an enum or rule | `UserRole IN ('User','Admin')`, `SlotType IN ('Car','Bike','EV')` |
+| **NN** | Not Null — cannot be empty | `FullName`, `StartTime`, `EndTime` |
+
+#### Line endpoints (cardinality)
+
+| Symbol | Meaning |
+|---|---|
+| `1` (single bar) | "Exactly one" — the row on this side participates exactly once |
+| `N` or crow's foot (three prongs) | "Many" — zero or more rows on this side |
+| Solid line | Real foreign-key relationship enforced by the database |
+| Dashed/dotted line | **Logical** relationship only — there is *no* foreign key in SQL |
+
+So a line with `1 ──── N` means "one-to-many", which is the most common shape in this schema.
+
+### 2.2 Walking through every relationship in the diagram
+
+The diagram has **six relationships** connecting the six tables. Five of them are real foreign keys (solid lines); one is logical (dashed).
+
+---
+
+#### Relationship 1 — `Users` *owns* `Vehicles` (1 : N)
+
+```
+Users (1) ──── owns ──── (N) Vehicles
+```
+
+- One user can own zero, one, or many vehicles.
+- Every vehicle belongs to **exactly one** user.
+- Enforced by `Vehicles.UserID FOREIGN KEY REFERENCES Users(UserID) ON DELETE CASCADE`.
+- `ON DELETE CASCADE` means: if a user is deleted, all their vehicles disappear automatically — no orphans.
+
+**SQL evidence:**
+```sql
+CONSTRAINT FK_Vehicle_User
+FOREIGN KEY (UserID) REFERENCES Users(UserID) ON DELETE CASCADE
+```
+
+---
+
+#### Relationship 2 — `Users` *makes* `Reservations` (1 : N)
+
+```
+Users (1) ──── makes ──── (N) Reservations
+```
+
+- One user can make many reservations over time (history of bookings).
+- Each reservation is made by **exactly one** user (the customer).
+- Enforced by `Reservations.UserID FOREIGN KEY REFERENCES Users(UserID) ON DELETE CASCADE`.
+- `CASCADE` here means: if you delete a user, their entire booking history goes with them. (We deliberately do **not** cascade on slot or vehicle deletion — see those relationships below.)
+
+---
+
+#### Relationship 3 — `Vehicles` *used in* `Reservations` (1 : N)
+
+```
+Vehicles (1) ──── used in ──── (N) Reservations
+```
+
+- One vehicle can be used in many reservations (the same car can be parked many times).
+- Every reservation references **exactly one** vehicle.
+- Enforced by `Reservations.VehicleID FOREIGN KEY REFERENCES Vehicles(VehicleID)`.
+- **No cascade** here — you cannot delete a vehicle that has reservations referencing it. This protects historical booking records from being silently destroyed when an admin (or user) removes a vehicle. The backend explicitly checks `WHERE ReservationStatus = 'Booked'` before allowing a vehicle delete.
+
+---
+
+#### Relationship 4 — `ParkingSlots` *assigned to* `Reservations` (1 : N)
+
+```
+ParkingSlots (1) ──── assigned to ──── (N) Reservations
+```
+
+- One slot can be assigned to many reservations over its lifetime (different time windows).
+- Every reservation occupies **exactly one** slot.
+- Enforced by `Reservations.SlotID FOREIGN KEY REFERENCES ParkingSlots(SlotID)`.
+- **No cascade** — same reasoning as above. Deleting a slot must not silently nuke historical reservations.
+
+> ℹ️ Note that `Reservations` has **three foreign keys** going into it (UserID, VehicleID, SlotID). That is what makes it the **central transactional table** — every reservation is the intersection of "who", "what vehicle", and "which slot".
+
+---
+
+#### Relationship 5 — `Reservations` *generates* `Payments` (1 : N)
+
+```
+Reservations (1) ──── generates ──── (N) Payments
+```
+
+- One reservation can generate many payment rows (for example: one *Failed*, one *Pending*, then one *Paid* on retry, plus possibly a refund row later).
+- Every payment row points to **exactly one** reservation.
+- Enforced by `Payments.ReservationID FOREIGN KEY REFERENCES Reservations(ReservationID) ON DELETE CASCADE`.
+- This is why **`PaymentID` is the primary key, not `ReservationID`** — multiple payment rows can share the same `ReservationID` without violating any constraint.
+
+**Example payment trail for one reservation:**
+
+| PaymentID (PK) | ReservationID (FK) | Amount | Status  |
+|---|---|---|---|
+| 101 | 42 | 200.00 | Failed |
+| 102 | 42 | 200.00 | Pending |
+| 103 | 42 | 200.00 | Paid |
+
+---
+
+#### Relationship 6 — `PricingRules` *priced by* `ParkingSlots` (logical / dashed line)
+
+```
+PricingRules (1) ─ ─ ─ priced by ─ ─ ─ (N) ParkingSlots
+```
+
+This is the **dashed** line in the diagram. It is **not** a foreign key in the database — it is a *logical* relationship.
+
+**Why dashed (logical instead of physical FK):**
+1. The connection is between `PricingRules.SlotType` and `ParkingSlots.SlotType` — both `VARCHAR(20)` columns.
+2. A real `FOREIGN KEY` requires the referenced column to be `UNIQUE`. But `SlotType` in `ParkingSlots` is **not unique** — many slots share the value `'Car'`. So you can't physically enforce the relationship through an FK.
+3. Instead, both columns share the **same `CHECK` enum** — `IN ('Car','Bike','EV')`. As long as both sides only accept those three values, the join via `SlotType` always works correctly.
+4. A "proper" alternative would be to introduce a separate `SlotTypes` lookup table with three rows (`Car`, `Bike`, `EV`) and FK both `ParkingSlots.SlotType` and `PricingRules.SlotType` to it. We chose not to because three fixed values is overkill for a separate table — the `CHECK` enum is the simpler 3NF-clean solution.
+
+**How it's used in queries:**
+```sql
+-- get the current rate for a slot
+SELECT TOP 1 pr.PricePerHour
+FROM   ParkingSlots ps
+JOIN   PricingRules pr ON pr.SlotType = ps.SlotType
+WHERE  ps.SlotID = ?
+ORDER BY pr.EffectiveFrom DESC;
+```
+
+The join still works perfectly — it's just a *value match*, not an FK match.
+
+### 2.3 Reading the diagram top-down
+
+If you trace the diagram from top to bottom, you can read the entire booking flow as a story:
+
+1. **A `User`** logs in.
+2. The user **owns** one or more **`Vehicles`**.
+3. They pick an available **`ParkingSlot`**.
+4. The slot's `SlotType` is **priced by** the matching **`PricingRules`** row (giving the rate per hour).
+5. They create a **`Reservation`** that references all three: their `User`, their `Vehicle`, and the chosen `Slot`.
+6. The reservation **generates** a **`Payment`** when they pay.
+
+That's the entire system in one walk through the diagram.
+
+### 2.4 Why this design is "good ERD shape"
+
+A few qualities of the diagram that signal good design:
+
+| Property | What it tells the reader |
+|---|---|
+| `Reservations` has 3 incoming FKs from 3 different entities | It is the **junction / fact table** — the place where multiple dimensions meet |
+| `Payments` only has 1 FK (to Reservations) | Payments is a **child** of reservations — pure dependent data |
+| `PricingRules` has no FK in/out (just a logical link) | It is a **lookup / reference** table — independent, parametric data |
+| `Users` is referenced by 2 children (Vehicles and Reservations) | Users is the **root identity** of the system |
+| The graph has **no cycles** | The schema is acyclic — there are no circular dependencies that could cause delete deadlocks |
+| Cardinalities are all `1 : N` (no `N : N`) | The schema is fully decomposed — no need for an intermediate junction table |
+
+These properties together mean the schema is in 3NF, easy to query, and easy to extend (Deliverable 4's QR check-in just adds two columns to `Reservations`, no diagram restructuring needed).
+
+---
+
+## 3. Tables — purpose, columns, and rationale
+
+### 3.1 `Users`
 
 ```sql
 CREATE TABLE Users (
@@ -65,7 +237,7 @@ Login (`AuthController`), admin user list (`AdminController.allUsers`), and as t
 
 ---
 
-### 2.2 `Vehicles`
+### 3.2 `Vehicles`
 
 ```sql
 CREATE TABLE Vehicles (
@@ -97,7 +269,7 @@ Listed on the user's Vehicles page (`api.myVehicles`), referenced in every reser
 
 ---
 
-### 2.3 `ParkingSlots`
+### 3.3 `ParkingSlots`
 
 ```sql
 CREATE TABLE ParkingSlots (
@@ -124,7 +296,7 @@ Drives the floor-plan UI on the dashboard (color-coded by `Status`), the booking
 
 ---
 
-### 2.4 `PricingRules`
+### 3.4 `PricingRules`
 
 ```sql
 CREATE TABLE PricingRules (
@@ -151,7 +323,7 @@ Read on every booking to compute the fare. Displayed on the dashboard pricing ca
 
 ---
 
-### 2.5 `Reservations` — the central transactional table
+### 3.5 `Reservations` — the central transactional table
 
 ```sql
 CREATE TABLE Reservations (
@@ -199,7 +371,7 @@ The booking flow, the user's "My Reservations" page, the admin all-reservations 
 
 ---
 
-### 2.6 `Payments`
+### 3.6 `Payments`
 
 ```sql
 CREATE TABLE Payments (
@@ -239,7 +411,7 @@ The `PayModal` on the user's reservations page, the admin payments table, and th
 
 ---
 
-## 3. Views — encapsulated joins
+## 4. Views — encapsulated joins
 
 Views are **saved queries** that look like tables. Three views encapsulate frequent multi-table joins so the application doesn't have to repeat the SQL.
 
@@ -277,7 +449,7 @@ JOIN Users         u ON r.UserID          = u.UserID;
 
 ---
 
-## 4. Constraints summary (database-enforced rules)
+## 5. Constraints summary (database-enforced rules)
 
 | Type | Where | Purpose |
 |---|---|---|
@@ -292,7 +464,7 @@ JOIN Users         u ON r.UserID          = u.UserID;
 
 ---
 
-## 5. Normalization (3NF) — why it matters
+## 6. Normalization (3NF) — why it matters
 
 A table is in 3NF when:
 1. It is in 2NF (no partial dependency on a composite key).
@@ -307,7 +479,7 @@ The result: **no redundancy, no update anomalies, and no insert/delete anomalies
 
 ---
 
-## 6. Common queries (read patterns the schema is shaped for)
+## 7. Common queries (read patterns the schema is shaped for)
 
 ```sql
 -- 1. List all available slots on the Ground Floor
@@ -342,7 +514,7 @@ GROUP BY SlotLocation;
 
 ---
 
-## 7. Server-side business rules layered on top of the schema
+## 8. Server-side business rules layered on top of the schema
 
 The schema enforces *structural* correctness; the backend enforces *business* correctness. Both layers matter.
 
@@ -359,7 +531,7 @@ The schema enforces *structural* correctness; the backend enforces *business* co
 
 ---
 
-## 8. Files
+## 9. Files
 
 - `schema.sql` — full DDL, view definitions, sample data, sample queries
 - `backend/src/main/java/com/group8/smartparking/` — controllers that read/write each table

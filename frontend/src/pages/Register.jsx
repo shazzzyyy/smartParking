@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, setSession } from "../api";
-import { AuthScaffold } from "./Login";
+import { AuthScaffold, EyeIcon } from "./Login";
 
 export default function Register() {
   const navigate = useNavigate();
@@ -65,19 +65,34 @@ export default function Register() {
 }
 
 function Field({ label, type = "text", value, onChange, placeholder, delay, required }) {
+  const [showPw, setShowPw] = useState(false);
+  const isPw = type === "password";
+  const inputType = isPw && showPw ? "text" : type;
   return (
     <div className="anim-fade-up" style={{ animationDelay: `${parseInt(delay) / 1000}s` }}>
       <label className="block text-[10px] tracking-[0.3em] text-slate-400 mb-2 font-bold">
         {label}{!required && <span className="text-slate-500 font-normal"> (optional)</span>}
       </label>
-      <input
-        type={type}
-        required={required}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        className="input-lift w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-white/60 focus:bg-white/10"
-      />
+      <div className="relative">
+        <input
+          type={inputType}
+          required={required}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          className={`input-lift w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 ${isPw ? "pr-12" : ""} text-white placeholder-slate-500 focus:outline-none focus:border-white/60 focus:bg-white/10`}
+        />
+        {isPw && (
+          <button
+            type="button"
+            onClick={() => setShowPw((v) => !v)}
+            aria-label={showPw ? "Hide password" : "Show password"}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1"
+          >
+            <EyeIcon open={showPw} />
+          </button>
+        )}
+      </div>
     </div>
   );
 }
