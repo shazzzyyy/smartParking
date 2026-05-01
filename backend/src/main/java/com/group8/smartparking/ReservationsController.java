@@ -13,7 +13,9 @@ import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.sql.Timestamp;
 import java.sql.Types;
+import java.time.DayOfWeek;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +36,29 @@ public class ReservationsController {
                              String startTime, String endTime) {}
     public record CheckInReq(String code) {}
     public record ExtensionReq(Integer userId, String requestedEndTime, String userNote) {}
+
+    // Opening hours: Mon–Sat, 8:00 AM – 8:00 PM (lot is closed on Sundays)
+    private static final LocalTime OPEN  = LocalTime.of(8, 0);
+    private static final LocalTime CLOSE = LocalTime.of(20, 0);
+
+    private void assertWithinOpeningHours(LocalDateTime start, LocalDateTime end) {
+        if (start.getDayOfWeek() == DayOfWeek.SUNDAY || end.getDayOfWeek() == DayOfWeek.SUNDAY) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                "Lot is closed on Sundays. Pick a Monday-to-Saturday slot.");
+        }
+        if (!start.toLocalDate().equals(end.toLocalDate())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                "Lot closes at 8:00 PM — overnight bookings are not allowed.");
+        }
+        if (start.toLocalTime().isBefore(OPEN)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                "Lot opens at 8:00 AM — start time is too early.");
+        }
+        if (end.toLocalTime().isAfter(CLOSE)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                "Lot closes at 8:00 PM — end time is too late.");
+        }
+    }
 
     private String code() {
         StringBuilder sb = new StringBuilder(6);
@@ -73,6 +98,7 @@ public class ReservationsController {
         if (!end.isAfter(start)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "EndTime must be after StartTime");
         }
+        assertWithinOpeningHours(start, end);
 
         Map<String, Object> slot;
         try {
@@ -289,7 +315,7 @@ public class ReservationsController {
         Map<String, Object> reservation;
         try {
             reservation = jdbc.queryForMap(
-                "SELECT UserID, EndTime, ReservationStatus FROM Reservations WHERE ReservationID = ?",
+                "SELECT UserID, StartTime, EndTime, ReservationStatus FROM Reservations WHERE ReservationID = ?",
                 id
             );
         } catch (Exception ex) {
@@ -308,6 +334,9 @@ public class ReservationsController {
             throw new ApiException(HttpStatus.BAD_REQUEST,
                 "Requested end time must be after current end time");
         }
+        // Extension can't push past closing hours / into Sunday
+        Timestamp startTs = (Timestamp) reservation.get("StartTime");
+        assertWithinOpeningHours(startTs.toLocalDateTime(), requested);
 
         Integer pending = jdbc.queryForObject(
             "SELECT COUNT(*) FROM ExtensionRequests WHERE ReservationID = ? AND Status = 'Pending'",
