@@ -635,7 +635,7 @@ function SlotShape({ slot, selected, isNearest, onSelect }) {
         <>
           <text
             x={slot.x + SW/2}
-            y={slot.y + SH - 22}
+            y={SW < 60 ? slot.y + SH - 10 : slot.y + SH - 22}
             textAnchor="middle"
             fill={text}
             fontSize={fontSub}
@@ -645,18 +645,20 @@ function SlotShape({ slot, selected, isNearest, onSelect }) {
           >
             ↻ {fmtFreeIn(slot.freeAt)}
           </text>
-          <text
-            x={slot.x + SW/2}
-            y={slot.y + SH - 10}
-            textAnchor="middle"
-            fill={text}
-            fontSize={Math.max(7, fontSub - 2)}
-            fontWeight="700"
-            opacity="0.55"
-            letterSpacing="1"
-          >
-            @ {fmtFreeAt(slot.freeAt)}
-          </text>
+          {SW >= 60 && (
+            <text
+              x={slot.x + SW/2}
+              y={slot.y + SH - 10}
+              textAnchor="middle"
+              fill={text}
+              fontSize={Math.max(7, fontSub - 2)}
+              fontWeight="700"
+              opacity="0.55"
+              letterSpacing="1"
+            >
+              @ {fmtFreeAt(slot.freeAt)}
+            </text>
+          )}
         </>
       )}
       <title>

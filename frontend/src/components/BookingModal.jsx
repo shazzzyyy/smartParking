@@ -112,27 +112,25 @@ export default function BookingModal({ slot, vehicles, rate, userId, onClose, on
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[10px] tracking-[0.3em] text-slate-400 mb-2 font-bold">START</label>
-                <input
-                  type="datetime-local"
-                  required
-                  value={start}
-                  onChange={(e) => setStart(e.target.value)}
-                  className="input-lift w-full bg-white/5 border border-white/15 rounded-lg px-3 py-3 text-white text-sm focus:outline-none focus:border-white/60"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] tracking-[0.3em] text-slate-400 mb-2 font-bold">END</label>
-                <input
-                  type="datetime-local"
-                  required
-                  value={end}
-                  onChange={(e) => setEnd(e.target.value)}
-                  className="input-lift w-full bg-white/5 border border-white/15 rounded-lg px-3 py-3 text-white text-sm focus:outline-none focus:border-white/60"
-                />
-              </div>
+            <div>
+              <label className="block text-[10px] tracking-[0.3em] text-slate-400 mb-2 font-bold">START</label>
+              <input
+                type="datetime-local"
+                required
+                value={start}
+                onChange={(e) => setStart(e.target.value)}
+                className="input-lift w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-white/60"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] tracking-[0.3em] text-slate-400 mb-2 font-bold">END</label>
+              <input
+                type="datetime-local"
+                required
+                value={end}
+                onChange={(e) => setEnd(e.target.value)}
+                className="input-lift w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-white/60"
+              />
             </div>
 
             <div className="bg-[#16202f] border border-white/10 rounded-lg p-4 space-y-2 text-sm">
