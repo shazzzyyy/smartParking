@@ -155,7 +155,7 @@ export default function Dashboard() {
               </span>
             )}
             <span className="text-[10px] tracking-[0.3em] text-slate-400 font-bold">
-              MON – SAT · 08:00 – 20:00
+              MON – SAT · 8:00 AM – 8:00 PM
             </span>
           </div>
           <div className="flex items-center gap-6 flex-wrap">
@@ -229,7 +229,7 @@ export default function Dashboard() {
                 </div>
                 <h3 className="text-2xl font-black leading-tight mb-1">FAST-NUCES Main Parking</h3>
                 <p className="text-xs text-slate-400 tracking-wide mb-4">
-                  Rs {selected ? priceFor(selected.type) : "—"} / hour · Mon–Sat · 08:00 – 20:00
+                  Rs {selected ? priceFor(selected.type) : "—"} / hour · Mon–Sat · 8:00 AM – 8:00 PM
                 </p>
 
                 {selected && (
@@ -718,7 +718,10 @@ function fmtFreeAt(iso, withDate = false) {
   if (!iso) return "";
   const d = new Date(iso);
   const pad = (n) => String(n).padStart(2, "0");
-  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const h24 = d.getHours();
+  const ampm = h24 >= 12 ? "PM" : "AM";
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  const hm = `${h12}:${pad(d.getMinutes())} ${ampm}`;
   if (!withDate) return hm;
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}`;
 }
