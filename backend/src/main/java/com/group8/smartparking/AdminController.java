@@ -16,9 +16,18 @@ import java.util.Map;
 public class AdminController {
 
     private final JdbcTemplate jdbc;
+    private final ReservationAutoCloser autoCloser;
 
-    public AdminController(JdbcTemplate jdbc) {
+    public AdminController(JdbcTemplate jdbc, ReservationAutoCloser autoCloser) {
         this.jdbc = jdbc;
+        this.autoCloser = autoCloser;
+    }
+
+    @PostMapping("/auto-close-now")
+    public Map<String, Object> autoCloseNow(@RequestParam int userId) {
+        assertAdmin(userId);
+        autoCloser.closeExpiredReservations();
+        return Map.of("triggered", true);
     }
 
     private void assertAdmin(int userId) {
