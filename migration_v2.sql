@@ -145,8 +145,8 @@ BEGIN
         THROW 51002, 'Reservation is not active.', 1;
     IF @CheckIn IS NOT NULL
         THROW 51003, 'Already checked in.', 1;
-    IF DATEDIFF(MINUTE, GETDATE(), @StartTime) > 30
-        THROW 51004, 'Too early — check-in opens 30 minutes before start time.', 1;
+    IF GETDATE() < @StartTime
+        THROW 51004, 'Too early — check-in opens at the booked start time.', 1;
     IF GETDATE() >= @EndTime
         THROW 51005, 'Reservation window has ended — cannot check in.', 1;
 
