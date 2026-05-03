@@ -73,10 +73,10 @@ export default function BookingModal({ slot, vehicles, rate, userId, onClose, on
   return (
     <Backdrop onClose={onClose}>
       <div
-        className="bg-[#1e2d44] text-white border border-white/10 rounded-2xl max-w-md w-full overflow-hidden anim-fade-up"
+        className="bg-[#1e2d44] text-white border border-white/10 rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto scrollbar-hide flex flex-col anim-fade-up"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-6 border-b border-white/10">
+        <div className="p-6 border-b border-white/10 shrink-0">
           <div className="flex items-center gap-2 mb-3 flex-wrap">
             <Pill>{slot.location}</Pill>
             <Pill>№ {slot.slotNumber}</Pill>

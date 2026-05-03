@@ -15,6 +15,11 @@ body,
   margin: 0;
 }
 
+/* Hide scrollbars on elements that scroll inside modals while keeping the
+   element scrollable (mouse wheel / trackpad / touch still work). */
+.scrollbar-hide { scrollbar-width: none; -ms-overflow-style: none; }
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+
 /* Native <option> elements ignore most parent CSS — force dark background
    so dropdown lists are readable instead of white-on-white. */
 select option,

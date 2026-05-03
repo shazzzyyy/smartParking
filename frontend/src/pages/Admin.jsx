@@ -203,7 +203,7 @@ function SlotModal({ uid, slot, onClose, onSaved }) {
 
   return (
     <Backdrop onClose={onClose}>
-      <div className="bg-[#1e2d44] text-white border border-white/10 rounded-2xl max-w-md w-full p-6 anim-fade-up" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-[#1e2d44] text-white border border-white/10 rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto scrollbar-hide p-6 anim-fade-up" onClick={(e) => e.stopPropagation()}>
         <div className="text-[10px] tracking-[0.4em] text-slate-400 mb-1 font-bold">{isEdit ? "MODIFY" : "CREATE"}</div>
         <h3 className="text-3xl font-black mb-5">{isEdit ? "EDIT SLOT" : "NEW SLOT"}</h3>
         <form onSubmit={submit} className="space-y-4">
@@ -330,7 +330,7 @@ function LaneModal({ uid, onClose, onSaved }) {
 
   return (
     <Backdrop onClose={onClose}>
-      <div className="bg-[#1e2d44] text-white border border-white/10 rounded-2xl max-w-md w-full p-6 anim-fade-up" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-[#1e2d44] text-white border border-white/10 rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto scrollbar-hide p-6 anim-fade-up" onClick={(e) => e.stopPropagation()}>
         <div className="text-[10px] tracking-[0.4em] text-slate-400 mb-1 font-bold">CREATE</div>
         <h3 className="text-3xl font-black mb-1">NEW LANE</h3>
         <p className="text-xs text-slate-400 tracking-wide mb-5">
@@ -419,7 +419,7 @@ function PricingModal({ uid, onClose, onSaved }) {
 
   return (
     <Backdrop onClose={onClose}>
-      <div className="bg-[#1e2d44] text-white border border-white/10 rounded-2xl max-w-md w-full p-6 anim-fade-up" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-[#1e2d44] text-white border border-white/10 rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto scrollbar-hide p-6 anim-fade-up" onClick={(e) => e.stopPropagation()}>
         <div className="text-[10px] tracking-[0.4em] text-slate-400 mb-1 font-bold">CREATE</div>
         <h3 className="text-3xl font-black mb-5">PRICING RULE</h3>
         <form onSubmit={submit} className="space-y-4">
@@ -705,7 +705,7 @@ function PeakHourModal({ uid, onClose, onSaved }) {
 
   return (
     <Backdrop onClose={onClose}>
-      <div className="bg-[#1e2d44] text-white border border-white/10 rounded-2xl max-w-md w-full p-6 anim-fade-up" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-[#1e2d44] text-white border border-white/10 rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto scrollbar-hide p-6 anim-fade-up" onClick={(e) => e.stopPropagation()}>
         <div className="text-[10px] tracking-[0.4em] text-slate-400 mb-1 font-bold">CREATE</div>
         <h3 className="text-3xl font-black mb-5">PEAK HOUR RULE</h3>
         <form onSubmit={submit} className="space-y-4">
