@@ -30,11 +30,6 @@ export default function Reservations() {
     catch (e) { setErr(e.message); }
   };
 
-  const checkIn = async (code) => {
-    try { await api.checkInReservation(code); await load(); }
-    catch (e) { setErr(e.message); }
-  };
-
   const checkOut = async (id) => {
     if (!confirm("Check out now? This ends your parking session.")) return;
     try {
@@ -99,9 +94,9 @@ export default function Reservations() {
                           </button>
                         )}
                         {r.status === "Booked" && r.paymentStatus === "Paid" && !r.checkInTime && (
-                          <button onClick={() => checkIn(r.verificationCode)} className="text-[10px] tracking-widest font-bold bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5">
-                            CHECK IN
-                          </button>
+                          <span className="text-[10px] tracking-widest font-bold text-[#1e2d44]/60 px-3 py-1.5 border border-[#1e2d44]/20">
+                            SHOW CODE AT GATE
+                          </span>
                         )}
                         {r.status === "Booked" && r.checkInTime && !r.checkOutTime && (
                           <button onClick={() => checkOut(r.reservationId)} className="text-[10px] tracking-widest font-bold bg-amber-700 hover:bg-amber-800 text-white px-3 py-1.5">

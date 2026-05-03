@@ -15,6 +15,19 @@ body,
   margin: 0;
 }
 
+/* Native <option> elements ignore most parent CSS — force dark background
+   so dropdown lists are readable instead of white-on-white. */
+select option,
+select optgroup {
+  background-color: #1e2d44;
+  color: #ffffff;
+}
+select option:checked,
+select option:hover {
+  background-color: #2a3b52;
+  color: #ffffff;
+}
+
 /* ============ animations ============ */
 
 @keyframes fade-up {

@@ -325,18 +325,20 @@ AS
 BEGIN
     SET NOCOUNT ON;
     DECLARE @ResID INT, @SlotID INT, @Status VARCHAR(20),
-            @CheckIn DATETIME, @StartTime DATETIME;
+            @CheckIn DATETIME, @StartTime DATETIME, @EndTime DATETIME;
 
     SELECT @ResID = ReservationID, @SlotID = SlotID,
            @Status = ReservationStatus, @CheckIn = CheckInTime,
-           @StartTime = StartTime
+           @StartTime = StartTime, @EndTime = EndTime
     FROM Reservations WHERE VerificationCode = @VerificationCode;
 
     IF @ResID IS NULL    THROW 51001, 'Invalid verification code.', 1;
     IF @Status <> 'Booked' THROW 51002, 'Reservation is not active.', 1;
     IF @CheckIn IS NOT NULL THROW 51003, 'Already checked in.', 1;
-    IF DATEDIFF(MINUTE, GETDATE(), @StartTime) > 30
-        THROW 51004, 'Too early — check-in opens 30 minutes before start time.', 1;
+    IF GETDATE() < @StartTime
+        THROW 51004, 'Too early — check-in opens at the booked start time.', 1;
+    IF GETDATE() >= @EndTime
+        THROW 51005, 'Reservation window has ended — cannot check in.', 1;
 
     UPDATE Reservations  SET CheckInTime = GETDATE() WHERE ReservationID = @ResID;
     UPDATE ParkingSlots  SET Status = 'Occupied'     WHERE SlotID = @SlotID;
